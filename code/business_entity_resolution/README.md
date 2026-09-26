@@ -27,7 +27,22 @@ code/business_entity_resolution/
 pip install -r code/business_entity_resolution/requirements.txt
 ```
 
-## Running the Full Pipeline (end-to-end)
+## Quick Start (Single-Command Execution)
+
+To run the complete pipeline end-to-end (normalization, validation split, blocking, feature extraction, LightGBM training, F0.5 threshold sweep, test inference, packaging, and validation check):
+
+```bash
+python code/business_entity_resolution/run_pipeline.py \
+    --train-dir dataset/train \
+    --test-dir dataset/test \
+    --output-dir output \
+    --data-dir data \
+    --models-dir models
+```
+
+---
+
+## Step-by-Step Modular Execution
 
 > All commands run from the **project root** (where `dataset/` lives).
 

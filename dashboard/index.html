@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resolvent — Entity Resolution Dashboard</title>
+    <meta name="description" content="Results dashboard for Resolvent entity resolution pipeline — Amazon ML Challenge 2026">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --primary: #4F46E5;
+            --primary-light: #6366F1;
+            --primary-dark: #3730A3;
+            --slate-900: #0F172A;
+            --slate-800: #1E293B;
+            --slate-700: #334155;
+            --slate-600: #475569;
+            --slate-500: #64748B;
+            --slate-400: #94A3B8;
+            --slate-300: #CBD5E1;
+            --slate-200: #E2E8F0;
+            --slate-100: #F1F5F9;
+            --slate-50: #F8FAFC;
+            --success: #059669;
+            --success-light: #D1FAE5;
+            --warning: #F59E0B;
+            --warning-light: #FEF3C7;
+            --error: #EF4444;
+            --error-light: #FEE2E2;
+            --white: #FFFFFF;
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --radius-xs: 6px;
+
+            --bg: var(--slate-50);
+            --surface: var(--white);
+            --text: var(--slate-900);
+            --text-secondary: var(--slate-600);
+            --text-muted: var(--slate-400);
+            --border: var(--slate-200);
+        }
+
+        [data-theme="dark"] {
+            --bg: var(--slate-900);
+            --surface: var(--slate-800);
+            --text: var(--slate-100);
+            --text-secondary: var(--slate-400);
+            --text-muted: var(--slate-500);
+            --border: var(--slate-700);
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.3);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ── Header ─────────────────────────────────────── */
+        .header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--primary);
+            letter-spacing: -0.5px;
+        }
+
+        .header-badge {
+            font-size: 11px;
+            font-weight: 600;
+            background: var(--primary);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .theme-toggle {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xs);
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+        }
+        .theme-toggle:hover { border-color: var(--primary); color: var(--primary); }
+
+        .data-load-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: var(--radius-xs);
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .data-load-btn:hover { background: var(--primary-dark); }
+
+        /* ── Navigation Tabs ────────────────────────────── */
+        .nav-tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0 32px;
+        }
+
+        .nav-tab {
+            padding: 12px 20px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            border: none;
+            background: none;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .nav-tab:hover { color: var(--primary); }
+        .nav-tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        /* ── Main Content ───────────────────────────────── */
+        .main { padding: 24px 32px; max-width: 1400px; margin: 0 auto; }
+
+        .view { display: none; }
+        .view.active { display: block; }
+
+        /* ── Cards ──────────────────────────────────────── */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        .card-header {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* ── Metric Cards ───────────────────────────────── */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .metric-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+
+        .metric-label {
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 32px;
+            font-weight: 700;
+            line-height: 1.1;
+        }
+
+        .metric-value.success { color: var(--success); }
+        .metric-value.warning { color: var(--warning); }
+        .metric-value.error { color: var(--error); }
+        .metric-value.primary { color: var(--primary); }
+
+        .metric-sub {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* ── Tables ─────────────────────────────────────── */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .data-table th {
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            padding: 10px 12px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .data-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+
+        .data-table tr:last-child td { border-bottom: none; }
+
+        .data-table tr:hover { background: var(--slate-50); }
+        [data-theme="dark"] .data-table tr:hover { background: var(--slate-700); }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+
+        /* ── Funnel ─────────────────────────────────────── */
+        .funnel-stage {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+
+        .funnel-bar-container {
+            flex: 1;
+            background: var(--slate-100);
+            border-radius: var(--radius-xs);
+            height: 40px;
+            position: relative;
+            overflow: hidden;
+        }
+        [data-theme="dark"] .funnel-bar-container { background: var(--slate-700); }
+
+        .funnel-bar {
+            height: 100%;
+            border-radius: var(--radius-xs);
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-weight: 600;
+            font-size: 13px;
+            color: white;
+            transition: width 0.6s ease;
+        }
+
+        .funnel-label {
+            min-width: 140px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .funnel-count {
+            min-width: 120px;
+            text-align: right;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        /* ── Entity Explorer ────────────────────────────── */
+        .search-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 10px 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xs);
+            font-size: 14px;
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--surface);
+            color: var(--text);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .search-input:focus { border-color: var(--primary); }
+
+        .search-btn {
+            padding: 10px 20px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: var(--radius-xs);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .search-btn:hover { background: var(--primary-dark); }
+
+        .entity-detail { margin-top: 16px; }
+
+        .candidate-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-bottom: 8px;
+            transition: all 0.15s;
+        }
+        .candidate-row:hover { border-color: var(--primary); box-shadow: var(--shadow-sm); }
+
+        .candidate-row.matched { border-left: 4px solid var(--success); }
+        .candidate-row.rejected { border-left: 4px solid var(--slate-300); }
+        .candidate-row.false-merge { border-left: 4px solid var(--error); }
+
+        .candidate-info { flex: 1; }
+        .candidate-id { font-family: 'JetBrains Mono', monospace; font-weight: 500; font-size: 13px; }
+        .candidate-name { color: var(--text-secondary); font-size: 13px; }
+
+        .score-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+        .score-badge.high { background: var(--success-light); color: var(--success); }
+        .score-badge.mid { background: var(--warning-light); color: #92400E; }
+        .score-badge.low { background: var(--error-light); color: var(--error); }
+
+        .decision-badge {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .decision-badge.match { background: var(--success-light); color: var(--success); }
+        .decision-badge.no-match { background: var(--slate-100); color: var(--slate-500); }
+        [data-theme="dark"] .decision-badge.no-match { background: var(--slate-700); }
+
+        /* ── Charts ─────────────────────────────────────── */
+        .chart-container { position: relative; height: 300px; }
+        .charts-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        /* ── Status indicator ───────────────────────────── */
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-dot.green { background: var(--success); }
+        .status-dot.amber { background: var(--warning); }
+        .status-dot.red { background: var(--error); }
+
+        /* ── Empty state ────────────────────────────────── */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+        .empty-state-icon { font-size: 48px; margin-bottom: 16px; }
+        .empty-state-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        /* ── Grid helpers ───────────────────────────────── */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+        /* ── Footer ─────────────────────────────────────── */
+        .footer {
+            text-align: center;
+            padding: 24px;
+            color: var(--text-muted);
+            font-size: 12px;
+            border-top: 1px solid var(--border);
+            margin-top: 40px;
+        }
+
+        @media (max-width: 768px) {
+            .main { padding: 16px; }
+            .header { padding: 12px 16px; }
+            .nav-tabs { padding: 0 16px; overflow-x: auto; }
+            .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+            .charts-row, .grid-2 { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <span class="logo">Resolvent</span>
+            <span class="header-badge">ML Challenge 2026</span>
+        </div>
+        <div class="header-right">
+            <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">
+                <span id="themeIcon">&#9789;</span> Theme
+            </button>
+            <label class="data-load-btn" style="cursor:pointer">
+                Load Data
+                <input type="file" id="fileInput" multiple accept=".json,.tsv" style="display:none" onchange="handleFiles(event)">
+            </label>
+        </div>
+    </header>
+
+    <!-- Navigation -->
+    <nav class="nav-tabs">
+        <button class="nav-tab active" onclick="switchView('scorecard')">Scorecard</button>
+        <button class="nav-tab" onclick="switchView('funnel')">Blocking Funnel</button>
+        <button class="nav-tab" onclick="switchView('explorer')">Entity Explorer</button>
+    </nav>
+
+    <main class="main">
+        <!-- ═══════ VIEW 1: SCORECARD ═══════ -->
+        <div id="view-scorecard" class="view active">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">F0.5 Score (Macro)</div>
+                    <div class="metric-value primary" id="f05-score">—</div>
+                    <div class="metric-sub">Precision-weighted harmonic mean</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Precision (Macro)</div>
+                    <div class="metric-value" id="precision-score">—</div>
+                    <div class="metric-sub">Counts 4x vs recall in F0.5</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Recall (Macro)</div>
+                    <div class="metric-value" id="recall-score">—</div>
+                    <div class="metric-sub">True matches found</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Singleton Accuracy</div>
+                    <div class="metric-value success" id="singleton-acc">—</div>
+                    <div class="metric-sub" id="singleton-detail">— of — singletons correct</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Total Entities</div>
+                    <div class="metric-value" id="total-entities" style="color: var(--text)">—</div>
+                    <div class="metric-sub">S1 entities evaluated</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Best Threshold</div>
+                    <div class="metric-value" id="best-threshold" style="color: var(--text)">—</div>
+                    <div class="metric-sub">F0.5-calibrated on validation</div>
+                </div>
+            </div>
+
+            <div class="charts-row">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="status-dot green"></span>
+                        Per-Country F0.5 Breakdown
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="countryChart"></canvas>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="status-dot green"></span>
+                        Threshold Sweep Curve
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="sweepChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="status-dot amber"></span>
+                    Feature Importances
+                </div>
+                <div class="chart-container" style="height: 350px;">
+                    <canvas id="featureChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════ VIEW 2: BLOCKING FUNNEL ═══════ -->
+        <div id="view-funnel" class="view">
+            <div class="card">
+                <div class="card-header">Blocking Reduction Funnel</div>
+                <div id="funnel-container">
+                    <div class="funnel-stage">
+                        <span class="funnel-label">Full Cross-Product</span>
+                        <div class="funnel-bar-container">
+                            <div class="funnel-bar" id="funnel-cross" style="width: 100%; background: var(--slate-400);">
+                                <span id="funnel-cross-label">—</span>
+                            </div>
+                        </div>
+                        <span class="funnel-count" id="funnel-cross-count">—</span>
+                    </div>
+                    <div class="funnel-stage">
+                        <span class="funnel-label">Candidate Pairs</span>
+                        <div class="funnel-bar-container">
+                            <div class="funnel-bar" id="funnel-cand" style="width: 50%; background: var(--primary);">
+                                <span id="funnel-cand-label">—</span>
+                            </div>
+                        </div>
+                        <span class="funnel-count" id="funnel-cand-count">—</span>
+                    </div>
+                    <div class="funnel-stage">
+                        <span class="funnel-label">Final Matches</span>
+                        <div class="funnel-bar-container">
+                            <div class="funnel-bar" id="funnel-match" style="width: 10%; background: var(--success);">
+                                <span id="funnel-match-label">—</span>
+                            </div>
+                        </div>
+                        <span class="funnel-count" id="funnel-match-count">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-header">Blocking Statistics</div>
+                    <table class="data-table" id="blocking-stats-table">
+                        <thead>
+                            <tr><th>Metric</th><th>Value</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Recall Ceiling</td><td class="mono" id="stat-recall">—</td></tr>
+                            <tr><td>Reduction Ratio</td><td class="mono" id="stat-reduction">—</td></tr>
+                            <tr><td>Candidate Pairs</td><td class="mono" id="stat-pairs">—</td></tr>
+                            <tr><td>Cross Product</td><td class="mono" id="stat-cross">—</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Per-Country Blocking</div>
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Country</th><th>S1</th><th>S23</th><th>Candidates</th></tr>
+                        </thead>
+                        <tbody id="country-blocking-body">
+                            <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No data loaded</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">Per-Pass Contribution</div>
+                <div class="chart-container">
+                    <canvas id="passChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════ VIEW 3: ENTITY EXPLORER ═══════ -->
+        <div id="view-explorer" class="view">
+            <div class="card">
+                <div class="card-header">Entity Match Explorer</div>
+                <div class="search-bar">
+                    <input type="text" class="search-input" id="entity-search"
+                           placeholder="Enter S1 entity ID (e.g. S1-925783039)" />
+                    <button class="search-btn" onclick="searchEntity()">Search</button>
+                    <button class="search-btn" onclick="showRandomEntity()" style="background: var(--slate-600);">Random</button>
+                </div>
+
+                <div id="entity-detail" class="entity-detail">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">&#128269;</div>
+                        <div class="empty-state-title">Search for an entity</div>
+                        <p>Enter an S1 entity ID or click Random to explore matches.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="status-dot red"></span>
+                        Worst False Merges
+                    </div>
+                    <div id="false-merges-list">
+                        <div class="empty-state" style="padding: 30px;">
+                            <p style="color: var(--text-muted);">Load data to see error analysis</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="status-dot amber"></span>
+                        Worst Missed Matches
+                    </div>
+                    <div id="missed-matches-list">
+                        <div class="empty-state" style="padding: 30px;">
+                            <p style="color: var(--text-muted);">Load data to see error analysis</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        Resolvent &mdash; Amazon ML Challenge 2026 &mdash; Business Entity Resolution
+    </footer>
+
+    <script>
+    // ═══════════════════════════════════════════════════════════════
+    // State
+    // ═══════════════════════════════════════════════════════════════
+    let dashData = {
+        scorecard: null,
+        blocking: null,
+        entities: null,
+        sweep: null,
+        features: null,
+    };
+
+    let charts = {};
+
+    // ═══════════════════════════════════════════════════════════════
+    // Theme toggle
+    // ═══════════════════════════════════════════════════════════════
+    function toggleTheme() {
+        const body = document.body;
+        const isDark = body.getAttribute('data-theme') === 'dark';
+        body.setAttribute('data-theme', isDark ? '' : 'dark');
+        document.getElementById('themeIcon').innerHTML = isDark ? '&#9789;' : '&#9788;';
+        // Redraw charts with new colors
+        Object.values(charts).forEach(c => c && c.update());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // View switching
+    // ═══════════════════════════════════════════════════════════════
+    function switchView(name) {
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+        document.getElementById('view-' + name).classList.add('active');
+        event.currentTarget.classList.add('active');
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // File loading
+    // ═══════════════════════════════════════════════════════════════
+    function handleFiles(event) {
+        const files = event.target.files;
+        for (const file of files) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (data.f05_macro !== undefined) {
+                        dashData.scorecard = data;
+                        renderScorecard();
+                    } else if (data.recall_ceiling !== undefined) {
+                        dashData.blocking = data;
+                        renderFunnel();
+                    } else if (data.sweep !== undefined) {
+                        dashData.sweep = data;
+                        renderSweepChart();
+                    } else if (data.feature_importances !== undefined) {
+                        dashData.features = data;
+                        renderFeatureChart();
+                    } else if (data.entities !== undefined) {
+                        dashData.entities = data;
+                    }
+                } catch (err) {
+                    console.log('Not JSON, trying as TSV:', file.name);
+                }
+            };
+            reader.readAsText(file);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Demo data (for presentation when real data not loaded)
+    // ═══════════════════════════════════════════════════════════════
+    function loadDemoData() {
+        dashData.scorecard = {
+            f05_macro: 0.8234,
+            precision_macro: 0.8891,
+            recall_macro: 0.7123,
+            n_entities: 220682,
+            n_singletons: 12356,
+            n_singletons_correct: 11890,
+            best_threshold: 0.62,
+            per_country: {
+                "US": { f05: 0.8567, precision: 0.9102, recall: 0.7456, entities: 128400 },
+                "India": { f05: 0.7901, precision: 0.8680, recall: 0.6790, entities: 92282 }
+            }
+        };
+
+        dashData.blocking = {
+            recall_ceiling: 0.9876,
+            reduction_ratio: 847.3,
+            total_candidates: 26540000,
+            total_cross_product: 22488000000000,
+            final_matches: 812450,
+            per_country: {
+                "US": { s1: 1284000, s23: 6120000, candidates: 15200000 },
+                "India": { s1: 922821, s23: 4200000, candidates: 11340000 }
+            },
+            per_pass: {
+                "name_token": 18200000,
+                "soundex": 2400000,
+                "metaphone": 1800000,
+                "address_token": 3100000,
+                "trigram": 1040000,
+            }
+        };
+
+        dashData.sweep = {
+            sweep: [
+                {t: 0.10, f05: 0.621, p: 0.520, r: 0.891},
+                {t: 0.20, f05: 0.689, p: 0.612, r: 0.867},
+                {t: 0.30, f05: 0.741, p: 0.702, r: 0.842},
+                {t: 0.40, f05: 0.778, p: 0.778, r: 0.802},
+                {t: 0.50, f05: 0.803, p: 0.842, r: 0.756},
+                {t: 0.55, f05: 0.812, p: 0.861, r: 0.738},
+                {t: 0.60, f05: 0.821, p: 0.882, r: 0.718},
+                {t: 0.62, f05: 0.823, p: 0.889, r: 0.712},
+                {t: 0.65, f05: 0.819, p: 0.896, r: 0.695},
+                {t: 0.70, f05: 0.804, p: 0.912, r: 0.661},
+                {t: 0.75, f05: 0.779, p: 0.934, r: 0.612},
+                {t: 0.80, f05: 0.741, p: 0.951, r: 0.556},
+                {t: 0.85, f05: 0.692, p: 0.967, r: 0.491},
+                {t: 0.90, f05: 0.621, p: 0.978, r: 0.412},
+            ]
+        };
+
+        dashData.features = {
+            feature_importances: [
+                { name: "name_tfidf_cosine", importance: 2840 },
+                { name: "name_jaro_winkler", importance: 2210 },
+                { name: "addr_tfidf_cosine", importance: 1890 },
+                { name: "name_token_jaccard", importance: 1560 },
+                { name: "name_levenshtein_norm", importance: 1340 },
+                { name: "addr_token_jaccard", importance: 1120 },
+                { name: "addr_levenshtein_norm", importance: 890 },
+                { name: "name_exact_norm", importance: 670 },
+                { name: "name_phonetic_match", importance: 540 },
+                { name: "name_len_ratio", importance: 430 },
+                { name: "name_token_count_diff", importance: 320 },
+                { name: "addr_empty_one", importance: 210 },
+                { name: "country_match", importance: 150 },
+                { name: "addr_empty_both", importance: 90 },
+            ]
+        };
+
+        dashData.entities = {
+            entities: {
+                "S1-925783039": {
+                    name: "Acme Corporation",
+                    address: "123 Main St, New York, NY 10001",
+                    country: "US",
+                    candidates: [
+                        { id: "S2-112340001", name: "Acme Corp", address: "123 Main Street, NYC", score: 0.94, matched: true },
+                        { id: "S3-889900012", name: "ACME CORPORATION", address: "123 Main St Suite 200, New York", score: 0.91, matched: true },
+                        { id: "S2-445560078", name: "Acme Holdings LLC", address: "456 Oak Ave, Chicago", score: 0.38, matched: false },
+                        { id: "S3-667780034", name: "Acne Corp", address: "123 Main St, New York", score: 0.52, matched: false },
+                    ]
+                },
+                "S1-100200300": {
+                    name: "Beta Solutions Pvt Ltd",
+                    address: "456 MG Road, Mumbai 400001",
+                    country: "India",
+                    candidates: [
+                        { id: "S2-200300400", name: "Beta Solutions Private Limited", address: "456 MG Road, Mumbai", score: 0.89, matched: true },
+                        { id: "S3-300400500", name: "Beta Soln", address: "MG Road Mumbai", score: 0.71, matched: true },
+                        { id: "S2-999888777", name: "Beta Technologies", address: "789 Ring Rd, Delhi", score: 0.31, matched: false },
+                    ]
+                },
+            },
+            false_merges: [
+                { s1: "S1-555000111", s1_name: "Delta Systems Inc", wrong_id: "S2-888111222", wrong_name: "Delta Shipping Inc", score: 0.68 },
+                { s1: "S1-666000222", s1_name: "Omega Healthcare", wrong_id: "S3-777222333", wrong_name: "Omega Health Foods", score: 0.64 },
+            ],
+            misses: [
+                { s1: "S1-777333444", s1_name: "Ganesh Textiles", missed_id: "S2-111444555", missed_name: "Ganesh Vastra Udyog", score: 0.28 },
+                { s1: "S1-888444555", s1_name: "wilfordhancock.com", missed_id: "S3-222555666", missed_name: "Wilford Hancock LLC", score: 0.19 },
+            ]
+        };
+
+        renderAll();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Rendering
+    // ═══════════════════════════════════════════════════════════════
+    function renderAll() {
+        renderScorecard();
+        renderFunnel();
+        renderSweepChart();
+        renderFeatureChart();
+        renderExplorer();
+    }
+
+    function renderScorecard() {
+        const d = dashData.scorecard;
+        if (!d) return;
+
+        document.getElementById('f05-score').textContent = d.f05_macro.toFixed(4);
+        document.getElementById('precision-score').textContent = d.precision_macro.toFixed(4);
+        document.getElementById('recall-score').textContent = d.recall_macro.toFixed(4);
+        document.getElementById('total-entities').textContent = d.n_entities.toLocaleString();
+        document.getElementById('best-threshold').textContent = d.best_threshold ? d.best_threshold.toFixed(2) : '—';
+
+        if (d.n_singletons > 0) {
+            const acc = (d.n_singletons_correct / d.n_singletons * 100).toFixed(1);
+            document.getElementById('singleton-acc').textContent = acc + '%';
+            document.getElementById('singleton-detail').textContent =
+                `${d.n_singletons_correct.toLocaleString()} of ${d.n_singletons.toLocaleString()} singletons correct`;
+        }
+
+        // Color the F0.5 card
+        const f05El = document.getElementById('f05-score');
+        const v = d.f05_macro;
+        if (v >= 0.80) f05El.className = 'metric-value success';
+        else if (v >= 0.60) f05El.className = 'metric-value warning';
+        else f05El.className = 'metric-value error';
+
+        // Country chart
+        if (d.per_country) {
+            const countries = Object.keys(d.per_country);
+            const f05s = countries.map(c => d.per_country[c].f05);
+            const precs = countries.map(c => d.per_country[c].precision);
+            const recs = countries.map(c => d.per_country[c].recall);
+
+            if (charts.country) charts.country.destroy();
+            charts.country = new Chart(document.getElementById('countryChart'), {
+                type: 'bar',
+                data: {
+                    labels: countries,
+                    datasets: [
+                        { label: 'F0.5', data: f05s, backgroundColor: '#4F46E5' },
+                        { label: 'Precision', data: precs, backgroundColor: '#059669' },
+                        { label: 'Recall', data: recs, backgroundColor: '#F59E0B' },
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, max: 1 } },
+                    plugins: { legend: { position: 'bottom' } },
+                }
+            });
+        }
+    }
+
+    function renderSweepChart() {
+        const d = dashData.sweep;
+        if (!d || !d.sweep) return;
+
+        const thresholds = d.sweep.map(s => s.t.toFixed(2));
+        const f05s = d.sweep.map(s => s.f05);
+        const precs = d.sweep.map(s => s.p);
+        const recs = d.sweep.map(s => s.r);
+
+        if (charts.sweep) charts.sweep.destroy();
+        charts.sweep = new Chart(document.getElementById('sweepChart'), {
+            type: 'line',
+            data: {
+                labels: thresholds,
+                datasets: [
+                    { label: 'F0.5', data: f05s, borderColor: '#4F46E5', borderWidth: 3, fill: false, tension: 0.3 },
+                    { label: 'Precision', data: precs, borderColor: '#059669', borderWidth: 2, borderDash: [5,3], fill: false, tension: 0.3 },
+                    { label: 'Recall', data: recs, borderColor: '#F59E0B', borderWidth: 2, borderDash: [5,3], fill: false, tension: 0.3 },
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { title: { display: true, text: 'Threshold' } },
+                    y: { beginAtZero: true, max: 1 },
+                },
+                plugins: { legend: { position: 'bottom' } },
+            }
+        });
+    }
+
+    function renderFeatureChart() {
+        const d = dashData.features;
+        if (!d) return;
+
+        const items = d.feature_importances.sort((a,b) => b.importance - a.importance);
+        const names = items.map(i => i.name);
+        const values = items.map(i => i.importance);
+
+        if (charts.feature) charts.feature.destroy();
+        charts.feature = new Chart(document.getElementById('featureChart'), {
+            type: 'bar',
+            data: {
+                labels: names,
+                datasets: [{
+                    label: 'Importance (split count)',
+                    data: values,
+                    backgroundColor: names.map((_, i) =>
+                        i < 3 ? '#4F46E5' : i < 7 ? '#6366F1' : '#94A3B8'
+                    ),
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+            }
+        });
+    }
+
+    function renderFunnel() {
+        const d = dashData.blocking;
+        if (!d) return;
+
+        const cross = d.total_cross_product;
+        const cand = d.total_candidates;
+        const matches = d.final_matches || 0;
+
+        document.getElementById('funnel-cross-count').textContent = formatNum(cross);
+        document.getElementById('funnel-cand-count').textContent = formatNum(cand);
+        document.getElementById('funnel-match-count').textContent = formatNum(matches);
+
+        const candPct = Math.max(2, (cand / cross * 100));
+        const matchPct = Math.max(1, (matches / cross * 100));
+        document.getElementById('funnel-cand').style.width = Math.min(candPct * 500, 100) + '%';
+        document.getElementById('funnel-match').style.width = Math.min(matchPct * 50000, 100) + '%';
+
+        document.getElementById('stat-recall').textContent = (d.recall_ceiling * 100).toFixed(2) + '%';
+        document.getElementById('stat-reduction').textContent = d.reduction_ratio.toFixed(1) + 'x';
+        document.getElementById('stat-pairs').textContent = formatNum(cand);
+        document.getElementById('stat-cross').textContent = formatNum(cross);
+
+        // Country blocking table
+        if (d.per_country) {
+            const tbody = document.getElementById('country-blocking-body');
+            tbody.innerHTML = '';
+            for (const [country, stats] of Object.entries(d.per_country)) {
+                tbody.innerHTML += `<tr>
+                    <td>${country}</td>
+                    <td class="mono">${formatNum(stats.s1)}</td>
+                    <td class="mono">${formatNum(stats.s23)}</td>
+                    <td class="mono">${formatNum(stats.candidates)}</td>
+                </tr>`;
+            }
+        }
+
+        // Per-pass chart
+        if (d.per_pass) {
+            const passes = Object.keys(d.per_pass);
+            const values = passes.map(p => d.per_pass[p]);
+            if (charts.pass) charts.pass.destroy();
+            charts.pass = new Chart(document.getElementById('passChart'), {
+                type: 'bar',
+                data: {
+                    labels: passes.map(p => p.replace('_', ' ')),
+                    datasets: [{
+                        label: 'Candidate pairs generated',
+                        data: values,
+                        backgroundColor: ['#4F46E5', '#6366F1', '#818CF8', '#A5B4FC', '#C7D2FE'],
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                }
+            });
+        }
+    }
+
+    function renderExplorer() {
+        if (!dashData.entities) return;
+
+        // False merges
+        const fmList = document.getElementById('false-merges-list');
+        const merges = dashData.entities.false_merges || [];
+        if (merges.length > 0) {
+            fmList.innerHTML = merges.map(m => `
+                <div class="candidate-row false-merge">
+                    <div class="candidate-info">
+                        <div class="candidate-id">${m.s1} &rarr; ${m.wrong_id}</div>
+                        <div class="candidate-name">"${m.s1_name}" merged with "${m.wrong_name}"</div>
+                    </div>
+                    <span class="score-badge mid">${m.score.toFixed(2)}</span>
+                </div>
+            `).join('');
+        }
+
+        // Misses
+        const mmList = document.getElementById('missed-matches-list');
+        const misses = dashData.entities.misses || [];
+        if (misses.length > 0) {
+            mmList.innerHTML = misses.map(m => `
+                <div class="candidate-row rejected">
+                    <div class="candidate-info">
+                        <div class="candidate-id">${m.s1} &rarr; ${m.missed_id}</div>
+                        <div class="candidate-name">"${m.s1_name}" missed "${m.missed_name}"</div>
+                    </div>
+                    <span class="score-badge low">${m.score.toFixed(2)}</span>
+                </div>
+            `).join('');
+        }
+    }
+
+    function searchEntity() {
+        const id = document.getElementById('entity-search').value.trim();
+        if (!id || !dashData.entities || !dashData.entities.entities) return;
+        const entity = dashData.entities.entities[id];
+        if (!entity) {
+            document.getElementById('entity-detail').innerHTML =
+                `<div class="empty-state"><div class="empty-state-title">Entity not found</div><p>Try another S1 ID.</p></div>`;
+            return;
+        }
+        renderEntityDetail(id, entity);
+    }
+
+    function showRandomEntity() {
+        if (!dashData.entities || !dashData.entities.entities) return;
+        const keys = Object.keys(dashData.entities.entities);
+        const id = keys[Math.floor(Math.random() * keys.length)];
+        document.getElementById('entity-search').value = id;
+        renderEntityDetail(id, dashData.entities.entities[id]);
+    }
+
+    function renderEntityDetail(id, entity) {
+        const container = document.getElementById('entity-detail');
+        let html = `
+            <div style="margin-bottom: 16px; padding: 16px; background: var(--slate-100); border-radius: var(--radius-sm);">
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600; color: var(--primary);">${id}</div>
+                <div style="margin-top: 4px; font-size: 14px;">${entity.name}</div>
+                <div style="color: var(--text-secondary); font-size: 13px;">${entity.address} &middot; ${entity.country}</div>
+            </div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">
+                CANDIDATES (${entity.candidates.length})
+            </div>
+        `;
+
+        for (const c of entity.candidates) {
+            const scoreClass = c.score >= 0.7 ? 'high' : c.score >= 0.4 ? 'mid' : 'low';
+            const rowClass = c.matched ? 'matched' : 'rejected';
+            html += `
+                <div class="candidate-row ${rowClass}">
+                    <div class="candidate-info">
+                        <div class="candidate-id">${c.id}</div>
+                        <div class="candidate-name">${c.name} &mdash; ${c.address || '(no address)'}</div>
+                    </div>
+                    <span class="score-badge ${scoreClass}">${c.score.toFixed(2)}</span>
+                    <span class="decision-badge ${c.matched ? 'match' : 'no-match'}">${c.matched ? 'Match' : 'Reject'}</span>
+                </div>
+            `;
+        }
+        container.innerHTML = html;
+    }
+
+    function formatNum(n) {
+        if (n >= 1e12) return (n/1e12).toFixed(1) + 'T';
+        if (n >= 1e9) return (n/1e9).toFixed(1) + 'B';
+        if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+        if (n >= 1e3) return (n/1e3).toFixed(1) + 'K';
+        return n.toLocaleString();
+    }
+
+    // Load demo data on page load
+    window.addEventListener('load', loadDemoData);
+    </script>
+</body>
+</html>

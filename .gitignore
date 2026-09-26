@@ -11,6 +11,7 @@ dataset/train/*.tsv
 dataset/test/*.tsv
 data/
 output/*.tsv
+models/
 scratch/
 *.parquet
 *.csv
