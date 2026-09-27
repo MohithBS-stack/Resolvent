@@ -22,8 +22,12 @@ Usage:
 
 import argparse
 import os
+import sys
 import time
 from typing import Dict, Optional, Set, Tuple
+
+# Ensure package root is on sys.path for standalone script execution
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import lightgbm as lgb
 import numpy as np

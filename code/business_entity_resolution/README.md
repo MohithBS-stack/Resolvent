@@ -85,44 +85,62 @@ python code/business_entity_resolution/src/blocking/candidate_gen.py \
     --output output/candidate_pairs.tsv
 ```
 
-### Step 3 — Build validation split + F₀.5 harness
+### Step 3 — Build validation split
 ```bash
-python code/business_entity_resolution/src/evaluate/score_f05.py \
+python code/business_entity_resolution/src/evaluate/score_f05.py split \
+    --s1 dataset/train/train_source1.tsv \
+    --s2 dataset/train/train_source2.tsv \
+    --s3 dataset/train/train_source3.tsv \
     --ground-truth dataset/train/train_ground_truth.tsv \
-    --s1 data/norm_train_source1.tsv \
     --val-fraction 0.1 \
     --output-dir data/val_split
 ```
 
-### Step 4 — Train matching model
+### Step 4 — Extract features & train matching model
 ```bash
-python code/business_entity_resolution/src/matching/train.py \
+# Extract features on training candidates
+python code/business_entity_resolution/src/features/similarity.py \
     --s1 data/norm_train_source1.tsv \
-    --s2 data/norm_train_source2.tsv \
-    --s3 data/norm_train_source3.tsv \
+    --s23 data/norm_train_s23.tsv \
+    --candidates data/train_candidate_pairs.tsv \
+    --output data/train_features.tsv
+
+# Train LightGBM matcher with hard-negative sampling
+python code/business_entity_resolution/src/matching/train.py \
+    --features data/train_features.tsv \
     --ground-truth dataset/train/train_ground_truth.tsv \
-    --val-dir data/val_split \
-    --model-out data/model.lgb
+    --model-output models/lgbm_matcher.txt
 ```
 
-### Step 5 — Run inference
+### Step 5 — Run inference & thresholding
 ```bash
-python code/business_entity_resolution/src/matching/predict.py \
-    --candidates output/candidate_pairs.tsv \
-    --model data/model.lgb \
+# Extract test features
+python code/business_entity_resolution/src/features/similarity.py \
     --s1 data/norm_test_source1.tsv \
-    --s2 data/norm_test_source2.tsv \
-    --s3 data/norm_test_source3.tsv \
+    --s23 data/norm_test_s23.tsv \
+    --candidates output/candidate_pairs.tsv \
+    --output data/test_features.tsv
+
+# Predict and apply calibrated threshold
+python code/business_entity_resolution/src/matching/predict.py \
+    --features data/test_features.tsv \
+    --model models/lgbm_matcher.txt \
+    --all-s1-ids data/norm_test_source1.tsv \
     --output output/matching_results.tsv \
-    --threshold 0.5
+    --threshold 0.70
 ```
 
-### Step 6 — Validate before submitting
+### Step 6 — Self-check & validate before submitting
 ```bash
-python utils/validate_submission.py \
-    --matching output/matching_results.tsv \
-    --candidate output/candidate_pairs.tsv \
-    --test-dir dataset/test
+# Self-checks (ID existence, superset assertion, S1 coverage) + validator gate
+python code/business_entity_resolution/src/submit/package.py \
+    --matching-results output/matching_results.tsv \
+    --candidate-pairs output/candidate_pairs.tsv \
+    --test-s1 dataset/test/test_source1.tsv \
+    --test-s2 dataset/test/test_source2.tsv \
+    --test-s3 dataset/test/test_source3.tsv \
+    --test-dir dataset/test \
+    --validator utils/validate_submission.py
 # Must print PASS — never upload without this
 ```
 

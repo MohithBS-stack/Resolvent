@@ -77,7 +77,9 @@ def main():
                         help="Output directory for matching_results.tsv + candidate_pairs.tsv")
     parser.add_argument("--val-fraction", type=float, default=0.1,
                         help="Fraction of train S1 entities for validation (default: 0.1)")
-    parser.add_argument("--model-dir", default="models",
+    parser.add_argument("--data-dir", default="data",
+                        help="Data directory for intermediate files (default: data)")
+    parser.add_argument("--model-dir", "--models-dir", dest="model_dir", default="models",
                         help="Directory to save/load model files")
     parser.add_argument("--threshold", type=float, default=None,
                         help="Fixed threshold (skip sweep). If not set, sweeps on val.")
@@ -92,7 +94,7 @@ def main():
     pipeline_start = time.time()
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(args.model_dir, exist_ok=True)
-    data_dir = "data"
+    data_dir = args.data_dir
     os.makedirs(data_dir, exist_ok=True)
     val_dir = os.path.join(data_dir, "val_split")
 

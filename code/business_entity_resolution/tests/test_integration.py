@@ -182,8 +182,34 @@ def test_full_pipeline():
         assert results["n_entities"] == 10
         assert 0 <= results["f05_macro"] <= 1
 
+        print("\n9. Packaging & self-checks...")
+        from src.submit.package import (
+            candidates_df_to_dict,
+            check_s1_coverage,
+            check_id_existence,
+            check_superset,
+            write_matching_results_tsv,
+            write_candidate_pairs_tsv,
+        )
+        cand_dict = candidates_df_to_dict(candidates)
+        for s1_id in all_s1_ids:
+            if s1_id not in cand_dict:
+                cand_dict[s1_id] = set()
+
+        valid_s23_ids = set(s2["entity_id"].values) | set(s3["entity_id"].values)
+        assert check_s1_coverage(matches, all_s1_ids, "matching_results")
+        assert check_s1_coverage(cand_dict, all_s1_ids, "candidate_pairs")
+        assert check_id_existence(matches, valid_s23_ids, "matching_results")
+        assert check_superset(matches, cand_dict)
+
+        out_match = os.path.join(tmpdir, "matching_results.tsv")
+        out_cand = os.path.join(tmpdir, "candidate_pairs.tsv")
+        write_matching_results_tsv(matches, out_match)
+        write_candidate_pairs_tsv(cand_dict, out_cand)
+        assert os.path.exists(out_match)
+        assert os.path.exists(out_cand)
+
         print("\n[PASS] Full pipeline integration test passed!")
-        return True
 
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
