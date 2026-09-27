@@ -115,8 +115,10 @@ class InvertedIndexBlocker:
     union of all pairs sharing at least one key in any pass.
     """
 
-    def __init__(self):
+    def __init__(self, max_bucket_size: int = 300, max_candidates_per_s1: int = 30):
         # Populated after build_index / generate_candidates
+        self.max_bucket_size = max_bucket_size
+        self.max_candidates_per_s1 = max_candidates_per_s1
         self.stats: Dict[str, object] = {}
 
     # ──────────────────────────────────────────────────────────────────
@@ -216,14 +218,9 @@ class InvertedIndexBlocker:
         """
         Run all 5 blocking passes for a single country partition and
         return the union of candidate pairs (deduplicated).
+        Memory-optimized: streams S23, indexes only keys active in S1,
+        and caps bucket size at insertion time.
         """
-        # Pre-compute blocking key data for S1 and S23
-        s1_keys = self._compute_blocking_keys(s1)
-        s23_keys = self._compute_blocking_keys(s23)
-
-        candidate_pairs: Set[Tuple[str, str]] = set()
-
-        # Each pass: build inverted index on S23, probe with S1 keys
         pass_names = [
             "name_token",
             "soundex",
@@ -232,28 +229,120 @@ class InvertedIndexBlocker:
             "trigram",
         ]
 
+        # 1. Compute blocking key data for S1 (small/partitioned)
+        t_s1 = time.time()
+        s1_keys = self._compute_blocking_keys(s1)
+        
+        # 2. Collect set of active S1 keys for each pass
+        active_keys: Dict[str, Set[str]] = {p: set() for p in pass_names}
+        for keys_dict in s1_keys.values():
+            for p in pass_names:
+                for k in keys_dict.get(p, []):
+                    if k:
+                        active_keys[p].add(k)
+        
+        # 3. Stream S23 records directly into inverted indices (no massive s23_keys dict!)
+        s23_indices: Dict[str, Dict[str, List[str]]] = {p: defaultdict(list) for p in pass_names}
+        
+        entity_ids = s23["entity_id"].values
+        norm_names = s23["norm_name"].fillna("").values
+        norm_addrs = s23["norm_address"].fillna("").values
+        n_s23 = len(entity_ids)
+        
+        idx_nt = s23_indices["name_token"]
+        act_nt = active_keys["name_token"]
+        idx_sx = s23_indices["soundex"]
+        act_sx = active_keys["soundex"]
+        idx_mp = s23_indices["metaphone"]
+        act_mp = active_keys["metaphone"]
+        idx_at = s23_indices["address_token"]
+        act_at = active_keys["address_token"]
+        idx_tg = s23_indices["trigram"]
+        act_tg = active_keys["trigram"]
+        max_b = self.max_bucket_size
+
+        for i in range(n_s23):
+            eid = entity_ids[i]
+            name = str(norm_names[i])
+            addr = str(norm_addrs[i])
+
+            # Pass 1: Name tokens
+            sig_tokens = _significant_name_tokens(name)
+            for tok in sig_tokens:
+                if tok in act_nt:
+                    b = idx_nt[tok]
+                    if len(b) <= max_b:
+                        b.append(eid)
+
+            # Pass 2 & 3: Phonetic of primary name token
+            if sig_tokens:
+                primary = sig_tokens[0]
+                if primary.isascii() and primary.isalpha():
+                    try:
+                        sx = jellyfish.soundex(primary)
+                        if sx in act_sx:
+                            b = idx_sx[sx]
+                            if len(b) <= max_b:
+                                b.append(eid)
+                    except Exception:
+                        pass
+                    try:
+                        mp = jellyfish.metaphone(primary)
+                        if mp in act_mp:
+                            b = idx_mp[mp]
+                            if len(b) <= max_b:
+                                b.append(eid)
+                    except Exception:
+                        pass
+
+            # Pass 4: Address tokens
+            if addr:
+                addr_tokens = [t for t in addr.split() if len(t) > 1]
+                for tok in set(addr_tokens):
+                    if tok in act_at:
+                        b = idx_at[tok]
+                        if len(b) <= max_b:
+                            b.append(eid)
+
+            # Pass 5: Trigram backstop
+            if name or addr:
+                combined = (name + " " + addr).strip()
+                for tg in _top_k_trigrams(combined, k=3):
+                    if tg in act_tg:
+                        b = idx_tg[tg]
+                        if len(b) <= max_b:
+                            b.append(eid)
+
+        # 4. Probe with S1 keys
+        candidate_pairs: Set[Tuple[str, str]] = set()
+        s1_counts: Dict[str, int] = defaultdict(int)
+
         for pass_name in pass_names:
             t_pass = time.time()
-            # Build inverted index from S23 side
-            s23_index: Dict[str, List[str]] = defaultdict(list)
-            for eid, keys_dict in s23_keys.items():
-                for key in keys_dict.get(pass_name, []):
-                    if key:  # skip empty keys
-                        s23_index[key].append(eid)
-
-            # Probe with S1 keys
+            s23_index = s23_indices[pass_name]
             pass_pairs = 0
             for s1_eid, keys_dict in s1_keys.items():
+                if s1_counts[s1_eid] >= self.max_candidates_per_s1:
+                    continue
                 for key in keys_dict.get(pass_name, []):
-                    if key and key in s23_index:
-                        for s23_eid in s23_index[key]:
-                            pair = (s1_eid, s23_eid)
-                            if pair not in candidate_pairs:
-                                candidate_pairs.add(pair)
-                                pass_pairs += 1
+                    if not key or key not in s23_index:
+                        continue
+                    bucket = s23_index[key]
+                    if len(bucket) > max_b:
+                        continue
+                    for s23_eid in bucket:
+                        pair = (s1_eid, s23_eid)
+                        if pair not in candidate_pairs:
+                            candidate_pairs.add(pair)
+                            s1_counts[s1_eid] += 1
+                            pass_pairs += 1
+                            if s1_counts[s1_eid] >= self.max_candidates_per_s1:
+                                break
+                    if s1_counts[s1_eid] >= self.max_candidates_per_s1:
+                        break
 
             elapsed_pass = time.time() - t_pass
-            print(f"    pass={pass_name}: +{pass_pairs:,} new pairs ({elapsed_pass:.1f}s)")
+            print(f"    pass={pass_name}: +{pass_pairs:,} new pairs ({elapsed_pass:.1f}s)", flush=True)
 
         return list(candidate_pairs)
 

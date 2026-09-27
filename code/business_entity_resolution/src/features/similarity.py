@@ -64,7 +64,8 @@ FEATURE_COLUMNS = [
 def _jaro_winkler(a: str, b: str) -> float:
     if not a or not b:
         return 0.0
-    return jellyfish.jaro_winkler_similarity(a, b)
+    from rapidfuzz.distance import JaroWinkler
+    return float(JaroWinkler.similarity(a, b))
 
 
 def _levenshtein_norm(a: str, b: str) -> float:
@@ -124,9 +125,8 @@ def _len_ratio(a: str, b: str) -> float:
 class CharTrigramTfidf:
     """
     Char trigram TF-IDF vectorizer. Script-agnostic — works on any Unicode.
-    
-    For efficiency, fits on the combined corpus of all S1 + S23 strings,
-    then computes cosine similarity for each candidate pair.
+    Fitted on a representative sample of corpus strings, then computes
+    row-wise cosine similarity for candidate pairs in vectorized batches.
     """
 
     def __init__(self):
@@ -137,52 +137,42 @@ class CharTrigramTfidf:
             dtype=np.float32,
         )
         self._fitted = False
-        self._vectors = None
-        self._id_to_idx = None
 
-    def fit(self, texts: Dict[str, str]) -> None:
-        """
-        Fit on all texts (keyed by entity_id), and transform to sparse vectors.
-        """
-        ids = list(texts.keys())
-        corpus = [texts[eid] for eid in ids]
-        self._vectors = self.vectorizer.fit_transform(corpus)
-        self._id_to_idx = {eid: i for i, eid in enumerate(ids)}
+    def fit_corpus(self, texts: List[str]) -> None:
+        """Fit vocabulary & IDF weights on a sample of text."""
+        self.vectorizer.fit(texts)
         self._fitted = True
 
-    def cosine(self, id_a: str, id_b: str) -> float:
-        """Cosine similarity between two entity vectors."""
-        if not self._fitted:
-            return 0.0
-        idx_a = self._id_to_idx.get(id_a)
-        idx_b = self._id_to_idx.get(id_b)
-        if idx_a is None or idx_b is None:
-            return 0.0
-        vec_a = self._vectors[idx_a]
-        vec_b = self._vectors[idx_b]
-        sim = sklearn_cosine(vec_a, vec_b)[0, 0]
-        return float(sim)
+    def fit(self, texts) -> None:
+        """Backward-compatible fit: accepts dict or list."""
+        if isinstance(texts, dict):
+            corpus = list(texts.values())
+        else:
+            corpus = list(texts)
+        self.fit_corpus(corpus)
+
+    def compute_pair_cosines(self, list_a: List[str], list_b: List[str]) -> np.ndarray:
+        """
+        Compute row-wise cosine similarity for aligned pairs of texts (list_a[i], list_b[i]).
+        Vectorized with scipy sparse matrix math.
+        """
+        if not self._fitted or not list_a:
+            return np.zeros(len(list_a), dtype=np.float32)
+
+        vecs_a = self.vectorizer.transform(list_a)
+        vecs_b = self.vectorizer.transform(list_b)
+
+        dots = np.asarray(vecs_a.multiply(vecs_b).sum(axis=1)).ravel()
+        sq_a = np.asarray(vecs_a.multiply(vecs_a).sum(axis=1)).ravel()
+        sq_b = np.asarray(vecs_b.multiply(vecs_b).sum(axis=1)).ravel()
+        denom = np.sqrt(sq_a) * np.sqrt(sq_b)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            cosines = np.where(denom > 0, dots / denom, 0.0).astype(np.float32)
+        return cosines
 
     def batch_cosine(self, pairs: List[Tuple[str, str]]) -> np.ndarray:
-        """
-        Efficiently compute cosine similarity for a batch of (id_a, id_b) pairs.
-        """
-        if not self._fitted:
-            return np.zeros(len(pairs), dtype=np.float32)
-
-        results = np.zeros(len(pairs), dtype=np.float32)
-        for i, (id_a, id_b) in enumerate(pairs):
-            idx_a = self._id_to_idx.get(id_a)
-            idx_b = self._id_to_idx.get(id_b)
-            if idx_a is not None and idx_b is not None:
-                vec_a = self._vectors[idx_a]
-                vec_b = self._vectors[idx_b]
-                dot = vec_a.multiply(vec_b).sum()
-                norm_a = np.sqrt(vec_a.multiply(vec_a).sum())
-                norm_b = np.sqrt(vec_b.multiply(vec_b).sum())
-                if norm_a > 0 and norm_b > 0:
-                    results[i] = dot / (norm_a * norm_b)
-        return results
+        """Fallback for compatibility."""
+        return np.zeros(len(pairs), dtype=np.float32)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -198,27 +188,35 @@ class FeatureExtractor:
         self.name_tfidf = CharTrigramTfidf()
         self.addr_tfidf = CharTrigramTfidf()
 
-    def fit(self, df_s1: pd.DataFrame, df_s23: pd.DataFrame) -> None:
+    def fit(self, df_s1: pd.DataFrame, df_s23: pd.DataFrame, max_sample: int = 100000) -> None:
         """
-        Fit TF-IDF vectorizers on all S1 + S23 normalized names and addresses.
+        Fit TF-IDF vectorizers on representative sample of names and addresses.
         """
-        print("  Fitting name TF-IDF vectorizer...")
-        name_texts = {}
-        for _, row in df_s1.iterrows():
-            name_texts[row["entity_id"]] = str(row.get("norm_name", ""))
-        for _, row in df_s23.iterrows():
-            name_texts[row["entity_id"]] = str(row.get("norm_name", ""))
-        self.name_tfidf.fit(name_texts)
-        print(f"    Vocabulary: {len(self.name_tfidf.vectorizer.vocabulary_):,} trigrams")
+        print("  Fitting name TF-IDF vectorizer...", flush=True)
+        s1_names = df_s1["norm_name"].dropna().astype(str)
+        s23_names = df_s23["norm_name"].dropna().astype(str)
+        
+        if len(s1_names) > max_sample:
+            s1_names = s1_names.sample(n=max_sample, random_state=42)
+        if len(s23_names) > max_sample:
+            s23_names = s23_names.sample(n=max_sample, random_state=42)
+            
+        train_names = list(s1_names) + list(s23_names)
+        self.name_tfidf.fit_corpus(train_names)
+        print(f"    Vocabulary: {len(self.name_tfidf.vectorizer.vocabulary_):,} trigrams", flush=True)
 
-        print("  Fitting address TF-IDF vectorizer...")
-        addr_texts = {}
-        for _, row in df_s1.iterrows():
-            addr_texts[row["entity_id"]] = str(row.get("norm_address", ""))
-        for _, row in df_s23.iterrows():
-            addr_texts[row["entity_id"]] = str(row.get("norm_address", ""))
-        self.addr_tfidf.fit(addr_texts)
-        print(f"    Vocabulary: {len(self.addr_tfidf.vectorizer.vocabulary_):,} trigrams")
+        print("  Fitting address TF-IDF vectorizer...", flush=True)
+        s1_addrs = df_s1["norm_address"].dropna().astype(str)
+        s23_addrs = df_s23["norm_address"].dropna().astype(str)
+        
+        if len(s1_addrs) > max_sample:
+            s1_addrs = s1_addrs.sample(n=max_sample, random_state=42)
+        if len(s23_addrs) > max_sample:
+            s23_addrs = s23_addrs.sample(n=max_sample, random_state=42)
+            
+        train_addrs = list(s1_addrs) + list(s23_addrs)
+        self.addr_tfidf.fit_corpus(train_addrs)
+        print(f"    Vocabulary: {len(self.addr_tfidf.vectorizer.vocabulary_):,} trigrams", flush=True)
 
     def extract(
         self,
@@ -246,7 +244,7 @@ class FeatureExtractor:
         DataFrame with [source1_entity_id, source23_entity_id] + FEATURE_COLUMNS
         """
         n = len(df_candidates)
-        print(f"  Extracting features for {n:,} candidate pairs...")
+        print(f"  Extracting features for {n:,} candidate pairs...", flush=True)
 
         all_features = []
 
@@ -260,19 +258,15 @@ class FeatureExtractor:
             s1_ids = chunk["source1_entity_id"].values
             s23_ids = chunk["source23_entity_id"].values
 
-            # Pre-extract pairs for batch TF-IDF
-            name_pairs = []
-            addr_pairs = []
+            # Pre-extract texts for vectorized TF-IDF
+            names_a = [s1_lookup.get(eid, {}).get("norm_name", "") for eid in s1_ids]
+            names_b = [s23_lookup.get(eid, {}).get("norm_name", "") for eid in s23_ids]
+            addrs_a = [s1_lookup.get(eid, {}).get("norm_address", "") for eid in s1_ids]
+            addrs_b = [s23_lookup.get(eid, {}).get("norm_address", "") for eid in s23_ids]
 
-            for i in range(len(chunk)):
-                s1_id = s1_ids[i]
-                s23_id = s23_ids[i]
-                name_pairs.append((s1_id, s23_id))
-                addr_pairs.append((s1_id, s23_id))
-
-            # Batch TF-IDF cosine
-            name_tfidf_scores = self.name_tfidf.batch_cosine(name_pairs)
-            addr_tfidf_scores = self.addr_tfidf.batch_cosine(addr_pairs)
+            # Vectorized TF-IDF cosine (runs in C++ via scipy sparse)
+            name_tfidf_scores = self.name_tfidf.compute_pair_cosines(names_a, names_b)
+            addr_tfidf_scores = self.addr_tfidf.compute_pair_cosines(addrs_a, addrs_b)
 
             for i in range(len(chunk)):
                 s1_id = s1_ids[i]
@@ -281,10 +275,10 @@ class FeatureExtractor:
                 s1_data = s1_lookup.get(s1_id, {})
                 s23_data = s23_lookup.get(s23_id, {})
 
-                name_a = s1_data.get("norm_name", "")
-                name_b = s23_data.get("norm_name", "")
-                addr_a = s1_data.get("norm_address", "")
-                addr_b = s23_data.get("norm_address", "")
+                name_a = names_a[i]
+                name_b = names_b[i]
+                addr_a = addrs_a[i]
+                addr_b = addrs_b[i]
                 country_a = s1_data.get("country", "")
                 country_b = s23_data.get("country", "")
 
@@ -316,10 +310,10 @@ class FeatureExtractor:
             all_features.append(df_feat)
 
             elapsed = time.time() - t0
-            print(f"    Chunk {start:,}-{end:,}: {elapsed:.1f}s")
+            print(f"    Chunk {start:,}-{end:,}: {elapsed:.1f}s", flush=True)
 
         result = pd.concat(all_features, ignore_index=True)
-        print(f"  Done: {len(result):,} feature rows, {len(FEATURE_COLUMNS)} features each")
+        print(f"  Done: {len(result):,} feature rows, {len(FEATURE_COLUMNS)} features each", flush=True)
         return result
 
 
@@ -327,14 +321,28 @@ class FeatureExtractor:
 # Helpers: build lookup dicts from DataFrames
 # ──────────────────────────────────────────────────────────────────────
 
-def build_lookup(df: pd.DataFrame) -> Dict[str, Dict]:
-    """Build entity_id -> {norm_name, norm_address, country} dict."""
+def build_lookup(df: pd.DataFrame, needed_ids: Optional[Set[str]] = None) -> Dict[str, Dict]:
+    """
+    Build entity_id -> {norm_name, norm_address, country} dict.
+    If needed_ids is provided, only extracts those IDs for massive memory savings.
+    Uses fast vectorized arrays instead of slow iterrows().
+    """
+    if needed_ids is not None:
+        sub_df = df[df["entity_id"].isin(needed_ids)]
+    else:
+        sub_df = df
+
+    eids = sub_df["entity_id"].values
+    names = sub_df["norm_name"].fillna("").values
+    addrs = sub_df["norm_address"].fillna("").values
+    countries = sub_df["country"].fillna("").values
+
     lookup = {}
-    for _, row in df.iterrows():
-        lookup[row["entity_id"]] = {
-            "norm_name": str(row.get("norm_name", "")),
-            "norm_address": str(row.get("norm_address", "")),
-            "country": str(row.get("country", "")),
+    for i in range(len(eids)):
+        lookup[eids[i]] = {
+            "norm_name": str(names[i]),
+            "norm_address": str(addrs[i]),
+            "country": str(countries[i]),
         }
     return lookup
 

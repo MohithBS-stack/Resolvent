@@ -135,16 +135,15 @@ def write_matching_results_tsv(
     matches: Dict[str, Set[str]],
     output_path: str,
 ) -> None:
-    """Write matching_results.tsv (scored by the leaderboard)."""
-    rows = []
-    for s1_id in sorted(matches.keys()):
-        matched = ",".join(sorted(matches[s1_id]))
-        rows.append({"source1_entity_id": s1_id, "matched_entity_ids": matched})
-
-    df = pd.DataFrame(rows)
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    df.to_csv(output_path, sep="\t", index=False, encoding="utf-8")
-    print(f"  Wrote matching_results.tsv: {len(df):,} rows -> {output_path}")
+    count = 0
+    with open(output_path, "w", encoding="utf-8", newline="") as f:
+        f.write("source1_entity_id\tmatched_entity_ids\n")
+        for s1_id in sorted(matches.keys()):
+            matched = ",".join(sorted(matches[s1_id]))
+            f.write(f"{s1_id}\t{matched}\n")
+            count += 1
+    print(f"  Wrote matching_results.tsv: {count:,} rows -> {output_path}")
 
 
 def write_candidate_pairs_tsv(
@@ -152,15 +151,15 @@ def write_candidate_pairs_tsv(
     output_path: str,
 ) -> None:
     """Write candidate_pairs.tsv (blocking audit trail)."""
-    rows = []
-    for s1_id in sorted(candidates.keys()):
-        cand = ",".join(sorted(candidates[s1_id]))
-        rows.append({"source1_entity_id": s1_id, "candidate_entity_ids": cand})
-
-    df = pd.DataFrame(rows)
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    df.to_csv(output_path, sep="\t", index=False, encoding="utf-8")
-    print(f"  Wrote candidate_pairs.tsv: {len(df):,} rows -> {output_path}")
+    count = 0
+    with open(output_path, "w", encoding="utf-8", newline="") as f:
+        f.write("source1_entity_id\tcandidate_entity_ids\n")
+        for s1_id in sorted(candidates.keys()):
+            cand = ",".join(sorted(candidates[s1_id]))
+            f.write(f"{s1_id}\t{cand}\n")
+            count += 1
+    print(f"  Wrote candidate_pairs.tsv: {count:,} rows -> {output_path}")
 
 
 # ──────────────────────────────────────────────────────────────────────
